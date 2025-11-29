@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Naxatra Labs - Inventory Management System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .tab-active { border-bottom: 2px solid #2563eb; color: #2563eb; font-weight: 600; }
+        .tab-inactive { color: #6b7280; }
+        /* Toast Notification */
+        #toast { visibility: hidden; min-width: 250px; background-color: #333; color: #fff; text-align: center; border-radius: 4px; padding: 16px; position: fixed; z-index: 50; left: 50%; bottom: 30px; transform: translateX(-50%); }
+        #toast.show { visibility: visible; -webkit-animation: fadein 0.5s, fadeout 0.5s 2.5s; animation: fadein 0.5s, fadeout 0.5s 2.5s; }
+        @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+        @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <nav class="bg-white shadow-sm border-b sticky top-0 z-20">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <span class="text-xl font-bold text-gray-800">📦 Inventory Control System</span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span class="text-xs text-gray-500">Live Connection</span>
+                    <div id="connection-status" class="h-3 w-3 rounded-full bg-red-500" title="Database Disconnected"></div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="flex-grow container mx-auto px-4 py-6 max-w-7xl">
+        
+        <div class="flex border-b border-gray-200 mb-6 overflow-x-auto">
+            <button onclick="switchTab('stock')" id="tab-stock" class="tab-active py-2 px-4 focus:outline-none transition flex-shrink-0">Current Stock</button>
+            <button onclick="switchTab('issue')" id="tab-issue" class="tab-inactive py-2 px-4 focus:outline-none transition flex-shrink-0">Outward (Issue)</button>
+            <button onclick="switchTab('inward')" id="tab-inward" class="tab-inactive py-2 px-4 focus:outline-none transition flex-shrink-0">Inward (Add Qty)</button>
+            <button onclick="switchTab('setup')" id="tab-setup" class="tab-inactive py-2 px-4 focus:outline-none transition text-purple-600 flex-shrink-0">✨ Material Setup</button>
+            <button onclick="switchTab('reports')" id="tab-reports" class="tab-inactive py-2 px-4 focus:outline-none transition text-blue-600 font-semibold flex-shrink-0">📊 Reports</button>
+        </div>
+
+        <div id="view-stock" class="block">
+            <div class="mb-4 flex gap-2">
+                <input type="text" id="search-box" placeholder="Search Part No or Description..." class="w-full p-2 border rounded shadow-sm focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+            <div class="bg-white rounded-lg shadow overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Part No.</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UOM</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Current Qty</th>
+                                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inventory-body" class="bg-white divide-y divide-gray-200 text-sm">
+                            <tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">Loading Inventory...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="view-issue" class="hidden max-w-lg mx-auto bg-white p-6 rounded-lg shadow">
+            <h2 class="text-xl font-bold mb-4 text-red-600">Issue Material (Outward)</h2>
+            <form id="issue-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Select Part</label>
+                    <input list="part-options" id="issue-part" class="mt-1 w-full p-2 border rounded focus:ring-red-500 focus:border-red-500" placeholder="Type to search..." required>
+                </div>
+                <div class="grid grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Quantity</label>
+                        <input type="number" id="issue-qty" min="1" class="mt-1 w-full p-2 border rounded" required>
+                    </div>
+                    <div class="col-span-2">
+                        <label class="block text-sm font-medium text-gray-700">Current Stock</label>
+                        <input type="text" id="issue-current-stock" disabled class="mt-1 w-full p-2 bg-gray-100 border rounded text-gray-500">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Handover To (Person)</label>
+                    <input type="text" id="issue-person" class="mt-1 w-full p-2 border rounded" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Department</label>
+                    <input type="text" id="issue-department" class="mt-1 w-full p-2 border rounded" required>
+                </div>
+                <button type="submit" class="w-full bg-red-600 text-white p-2 rounded hover:bg-red-700 transition font-semibold">Confirm Issue (Minus Stock)</button>
+            </form>
+        </div>
+
+        <div id="view-inward" class="hidden max-w-lg mx-auto bg-white p-6 rounded-lg shadow">
+            <h2 class="text-xl font-bold mb-4 text-green-600">Inward Material (Add Quantity)</h2>
+            <p class="text-sm text-gray-500 mb-4">Use this tab to add received quantity to *existing* materials only.</p>
+            <form id="inward-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Select Existing Part</label>
+                    <input list="part-options" id="inward-part" class="mt-1 w-full p-2 border rounded focus:ring-green-500 focus:border-green-500" placeholder="Search existing material..." required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Quantity Received</label>
+                    <input type="number" id="inward-qty" min="1" class="mt-1 w-full p-2 border rounded" required>
+                </div>
+                <button type="submit" class="w-full bg-green-600 text-white p-2 rounded hover:bg-green-700 transition font-semibold">Confirm Inward (Add to Stock)</button>
+            </form>
+        </div>
+
+        <div id="view-setup" class="hidden max-w-lg mx-auto bg-white p-6 rounded-lg shadow border-l-4 border-purple-500">
+            <h2 class="text-xl font-bold mb-4 text-purple-600">✨ Register New Material & Set Initial Stock</h2>
+            <p class="text-sm text-gray-500 mb-4">Use this only for **new** materials to set their starting inventory (and UOM/Description).</p>
+            <form id="setup-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Part Name / Number</label>
+                    <input type="text" id="setup-part" class="mt-1 w-full p-2 border rounded" placeholder="Required" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Description</label>
+                    <input type="text" id="setup-desc" class="mt-1 w-full p-2 border rounded" placeholder="e.g. 10mm Steel Bolt Grade 8.8" required>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">UOM</label>
+                        <select id="setup-uom" class="w-full p-2 border rounded bg-white">
+                            <option value="NOS">NOS</option>
+                            <option value="KG">KG</option>
+                            <option value="METER">METER</option>
+                            <option value="SET">SET</option>
+                            <option value="LTR">LTR</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Initial Quantity</label>
+                        <input type="number" id="setup-qty" min="0" class="mt-1 w-full p-2 border rounded" value="0" required>
+                    </div>
+                </div>
+                <button type="submit" class="w-full bg-purple-600 text-white p-2 rounded hover:bg-purple-700 transition font-semibold">Register & Add to Main Stock</button>
+            </form>
+        </div>
+
+        <div id="view-reports" class="hidden max-w-2xl mx-auto bg-white p-6 rounded-lg shadow border-l-4 border-blue-500">
+            <h2 class="text-xl font-bold mb-4 text-blue-600">📊 Inventory Reports</h2>
+            <p class="text-sm text-gray-600 mb-6">Download a single Excel file containing **all Inward, Outward, and Setup transactions** recorded in the database.</p>
+            <button onclick="downloadTransactionReport()" id="report-btn" class="w-full bg-blue-600 text-white p-3 rounded hover:bg-blue-700 transition font-semibold text-lg flex items-center justify-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Download All Transaction History (.xlsx)
+            </button>
+            <div id="report-status" class="mt-4 text-sm text-center text-gray-500">Ready to download.</div>
+        </div>
+
+
+        <datalist id="part-options"></datalist>
+
+    </main>
+
+    <div id="toast">Notification</div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, runTransaction, query, orderBy, serverTimestamp, getDocs } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+
+        // --- 1. CONFIGURATION ---
+        // 🚨 IMPORTANT: REPLACE THIS ENTIRE OBJECT WITH YOUR FIREBASE CONFIG
+        const firebaseConfig = {
+            apiKey: "AIzaSyDV3Iq2NIadcCBM9185GWkxDFJJcrHYOyk",
+            authDomain: "store-inventory-e7522.firebaseapp.com",
+            projectId: "store-inventory-e7522",
+            storageBucket: "store-inventory-e7522.firebasestorage.app",
+            messagingSenderId: "547358816454",
+            appId: "1:547358816454:web:6027c65eb83c13b5c7ffc7"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        
+        const INVENTORY_COL = 'main_inventory'; 
+        const HISTORY_COL = 'inventory_history';
+        const LOW_STOCK_THRESHOLD = 50; // Define the threshold here
+
+        // --- 2. GLOBAL VARIABLES & INITIALIZATION ---
+        let currentInventory = [];
+
+        // Real-time Stock Listener
+        function loadInventory() {
+            const q = query(collection(db, INVENTORY_COL), orderBy('partNumber'));
+            
+            onSnapshot(q, (snapshot) => {
+                document.getElementById('connection-status').classList.remove('bg-red-500');
+                document.getElementById('connection-status').classList.add('bg-green-500');
+                
+                currentInventory = [];
+                const tbody = document.getElementById('inventory-body');
+                tbody.innerHTML = '';
+                const datalist = document.getElementById('part-options');
+                datalist.innerHTML = '';
+
+                if (snapshot.empty) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">No items found. Use "Material Setup" tab to add materials.</td></tr>';
+                    return;
+                }
+
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    data.id = doc.id;
+                    currentInventory.push(data);
+
+                    // --- ONLY QUANTITY-BASED STATUS LOGIC ---
+                    const stockStatusColor = data.qty < LOW_STOCK_THRESHOLD ? 'text-red-600 font-bold' : 'text-green-600';
+                    const stockStatusText = data.qty < LOW_STOCK_THRESHOLD ? 'LOW (RED)' : 'OK (GREEN)';
+                    // ----------------------------------------
+                    
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap font-medium text-gray-900">${data.partNumber}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-gray-500">${data.description || 'N/A'}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-gray-500">${data.uom}</td>
+                        <td class="px-6 py-4 text-right whitespace-nowrap font-bold text-gray-900">${data.qty}</td>
+                        <td class="px-6 py-4 text-center whitespace-nowrap ${stockStatusColor}">${stockStatusText}</td>
+                    `;
+                    tbody.appendChild(tr);
+
+                    // Populate Search Datalist
+                    const opt = document.createElement('option');
+                    opt.value = `${data.partNumber} | ${data.description || ''}`;
+                    datalist.appendChild(opt);
+                });
+            }, (error) => {
+                console.error("Error getting documents: ", error);
+                document.getElementById('connection-status').classList.add('bg-red-500');
+                showToast("Connection Error! Check your Firebase config and rules.");
+            });
+        }
+        
+        // --- 3. ISSUE (OUTWARD) LOGIC (Auto Minus) ---
+        document.getElementById('issue-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const inputVal = document.getElementById('issue-part').value;
+            const issueQty = Number(document.getElementById('issue-qty').value);
+            const person = document.getElementById('issue-person').value;
+            const department = document.getElementById('issue-department').value;
+            
+            const partNo = inputVal.split(' | ')[0];
+            const item = currentInventory.find(i => i.partNumber === partNo);
+
+            if (!item) { showToast("Invalid Part Number selected. Please check Stock tab."); return; }
+            if (item.qty < issueQty) { showToast(`Error: Insufficient Stock! Only ${item.qty} available.`); return; }
+
+            const ref = doc(db, INVENTORY_COL, item.id);
+
+            try {
+                // 1. Run Transaction to Update Stock
+                await runTransaction(db, async (transaction) => {
+                    const sfDoc = await transaction.get(ref);
+                    if (!sfDoc.exists()) throw "Document does not exist!";
+                    const newQty = sfDoc.data().qty - issueQty;
+                    transaction.update(ref, { qty: newQty });
+                });
+
+                // 2. Log Transaction History
+                await setDoc(doc(collection(db, HISTORY_COL)), {
+                    type: 'OUTWARD',
+                    partNumber: partNo,
+                    qtyChange: -issueQty, // Negative for issue
+                    timestamp: serverTimestamp(),
+                    handoverTo: person,
+                    department: department,
+                    description: item.description || '',
+                    uom: item.uom || '',
+                });
+
+                showToast(`Issued ${issueQty} ${item.uom} successfully`);
+                e.target.reset();
+            } catch (err) {
+                console.error("Issue Transaction Failed:", err);
+                showToast("Issue Transaction Failed. Check console (F12) for error messages.");
+            }
+        });
+
+        // --- 4. INWARD (ADD QTY) LOGIC (Auto Add to existing) ---
+        document.getElementById('inward-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const inputVal = document.getElementById('inward-part').value;
+            const addQty = Number(document.getElementById('inward-qty').value);
+            
+            const partNo = inputVal.split(' | ')[0];
+            const item = currentInventory.find(i => i.partNumber === partNo);
+            
+            if (!item) {
+                 showToast("Part not found. Please use the 'Material Setup' tab to register new items.");
+                 return;
+            }
+            
+            // ITEM EXISTS: Update Stock via Transaction
+            const ref = doc(db, INVENTORY_COL, item.id);
+            try {
+                await runTransaction(db, async (transaction) => {
+                    const sfDoc = await transaction.get(ref);
+                    if (!sfDoc.exists()) throw "Document missing";
+                    const newQty = sfDoc.data().qty + addQty;
+                    
+                    // Update the quantity
+                    transaction.update(ref, { qty: newQty });
+                });
+
+                // Log History
+                await setDoc(doc(collection(db, HISTORY_COL)), {
+                    type: 'INWARD',
+                    partNumber: partNo,
+                    qtyChange: addQty, // Positive for inward
+                    timestamp: serverTimestamp(),
+                    description: item.description || '',
+                    uom: item.uom || '',
+                });
+
+                showToast(`Added ${addQty} ${item.uom} to existing stock`);
+                e.target.reset();
+
+            } catch (err) { 
+                console.error("Inward Update Failed (Firebase Transaction Error):", err);
+                showToast("Inward Update Failed. Check console (F12) for error messages.");
+            }
+        });
+
+        // --- 5. MATERIAL SETUP LOGIC (Add New Item Manually) ---
+        document.getElementById('setup-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const partNo = document.getElementById('setup-part').value.trim();
+            const desc = document.getElementById('setup-desc').value.trim();
+            const uom = document.getElementById('setup-uom').value;
+            const initialQty = Number(document.getElementById('setup-qty').value);
+
+            // Check if item already exists
+            const existingItem = currentInventory.find(i => i.partNumber === partNo);
+            const docId = partNo.replace(/[^a-zA-Z0-9-_]/g, ''); 
+            const ref = doc(db, INVENTORY_COL, docId);
+            
+            if (existingItem) {
+                showToast("This Part Number already exists! Use Inward/Issue or correct the Part Name.");
+                return;
+            }
+
+            // CREATE NEW ITEM
+            try {
+                // 1. Create new Inventory Item
+                await setDoc(ref, {
+                    partNumber: partNo,
+                    description: desc,
+                    uom: uom,
+                    qty: initialQty,
+                });
+
+                // 2. Log History
+                await setDoc(doc(collection(db, HISTORY_COL)), {
+                    type: 'SETUP',
+                    partNumber: partNo,
+                    qtyChange: initialQty,
+                    timestamp: serverTimestamp(),
+                    description: desc,
+                    uom: uom,
+                });
+
+                showToast(`Material ${partNo} registered with ${initialQty} stock.`);
+                e.target.reset();
+            } catch(err) { 
+                console.error("Material Registration Failed:", err); 
+                showToast("Material Registration Failed. Check console for details."); 
+            }
+        });
+
+
+        // --- 6. REPORTS LOGIC (Download All Transactions) ---
+        window.downloadTransactionReport = async () => {
+            const reportBtn = document.getElementById('report-btn');
+            const reportStatus = document.getElementById('report-status');
+
+            reportBtn.disabled = true;
+            reportStatus.textContent = "Fetching transactions from database...";
+
+            try {
+                const q = query(collection(db, HISTORY_COL), orderBy('timestamp', 'desc'));
+                const snapshot = await getDocs(q);
+                
+                if (snapshot.empty) {
+                    reportStatus.textContent = "No transactions found to report.";
+                    reportBtn.disabled = false;
+                    return;
+                }
+
+                const transactionData = [];
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    // Clean and format data for Excel
+                    transactionData.push({
+                        'Date/Time': data.timestamp ? data.timestamp.toDate().toLocaleString() : 'N/A',
+                        'Transaction Type': data.type || 'N/A',
+                        'Part No': data.partNumber || 'N/A',
+                        'Description': data.description || 'N/A',
+                        'UOM': data.uom || 'N/A',
+                        'Quantity Change': data.qtyChange || 0,
+                        'Handover To': data.handoverTo || '',
+                        'Department': data.department || '',
+                    });
+                });
+
+                // Create a worksheet
+                const ws = XLSX.utils.json_to_sheet(transactionData);
+                
+                // Create a workbook
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Stock_Transactions");
+
+                // Generate file name with date
+                const date = new Date().toISOString().split('T')[0];
+                const fileName = `Inventory_Transactions_${date}.xlsx`;
+
+                // Download
+                XLSX.writeFile(wb, fileName);
+                
+                reportStatus.textContent = `Successfully downloaded ${transactionData.length} transactions.`;
+
+            } catch (error) {
+                console.error("Report Download Failed:", error);
+                reportStatus.textContent = "Error downloading report. Check console for details.";
+            } finally {
+                reportBtn.disabled = false;
+            }
+        };
+
+
+        // --- 7. UI HELPERS ---
+        
+        // Search Function
+        document.getElementById('search-box').addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase();
+            const rows = document.querySelectorAll('#inventory-body tr');
+            rows.forEach(row => {
+                const text = row.innerText.toLowerCase();
+                row.style.display = text.includes(term) ? '' : 'none';
+            });
+        });
+
+        // Display current stock when selecting item for issue
+        document.getElementById('issue-part').addEventListener('input', (e) => {
+            const partNo = e.target.value.split(' | ')[0];
+            const item = currentInventory.find(i => i.partNumber === partNo);
+            const stockInput = document.getElementById('issue-current-stock');
+            if(item) {
+                stockInput.value = `${item.qty} ${item.uom}`;
+            } else {
+                stockInput.value = 'Item not found';
+            }
+        });
+
+        window.switchTab = (tab) => {
+            ['stock', 'issue', 'inward', 'setup', 'reports'].forEach(t => {
+                document.getElementById(`view-${t}`).classList.toggle('hidden', t !== tab);
+                document.getElementById(`view-${t}`).classList.toggle('block', t === tab);
+                document.getElementById(`tab-${t}`).classList.toggle('tab-active', t === tab);
+                document.getElementById(`tab-${t}`).classList.toggle('tab-inactive', t !== tab);
+            });
+        };
+
+        window.showToast = (msg) => {
+            const x = document.getElementById("toast");
+            x.textContent = msg;
+            x.className = "show";
+            setTimeout(function(){ x.className = x.className.replace("show", ""); }, 3000);
+        }
+
+        // Initialize Inventory Load
+        loadInventory();
+
+    </script>
+</body>
+</html>
